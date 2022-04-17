@@ -1,38 +1,54 @@
 package main
 
 import (
+	"log"
 	"time"
 
 	"github.com/xanzy/go-gitlab"
 )
 
-type Milestone struct {
-	Type        string
-	URL         string
-	Repository  string
-	User        string
-	Title       string
-	Description string
-	State       string
-	DueOn       *gitlab.ISOTime
-	CreatedAt   *time.Time
+type MilestoneService struct {
+	*BaseService
 }
 
-func getMilestones(project *gitlab.Project) ([]Milestone, error) {
-	milestones, _, err := getClient().Milestones.ListMilestones(project.ID, &gitlab.ListMilestonesOptions{})
+type Milestone struct {
+	Type        string          `json:"type"`
+	URL         string          `json:"url"`
+	Repository  string          `json:"repository"`
+	User        string          `json:"user"`
+	Title       string          `json:"title"`
+	Description string          `json:"description"`
+	State       string          `json:"state"`
+	DueOn       *gitlab.ISOTime `json:"due_on"`
+	CreatedAt   *time.Time      `json:"created_at"`
+}
 
-	m := make([]Milestone, len(milestones))
+func NewMilestoneService(e *Exporter) *MilestoneService {
+	return &MilestoneService{
+		BaseService: &BaseService{
+			exporter: e,
+			filename: "milestones.json",
+		},
+	}
+}
+
+func (m *MilestoneService) GetAll() ([]Milestone, error) {
+	project := m.exporter.CurrentProject
+
+	milestones, _, err := m.exporter.Client.Milestones.ListMilestones(project.ID, &gitlab.ListMilestonesOptions{})
+
+	ms := make([]Milestone, len(milestones))
 	for i, milestone := range milestones {
 		state := "open"
 		if milestone.State != "active" {
 			state = "closed"
 		}
 
-		m[i] = Milestone{
+		ms[i] = Milestone{
 			Type:        "milestone",
 			URL:         milestone.WebURL,
 			Repository:  project.WebURL,
-			User:        "",
+			User:        project.WebURL,
 			Title:       milestone.Title,
 			Description: milestone.Description,
 			State:       state,
@@ -41,5 +57,19 @@ func getMilestones(project *gitlab.Project) ([]Milestone, error) {
 		}
 	}
 
-	return m, err
+	return ms, err
+}
+
+func (m *MilestoneService) Export() {
+	milestones, err := m.GetAll()
+	if err != nil {
+		log.Fatalf("Failed to get milestones for projectID %d: %v", m.exporter.CurrentProject.ID, err)
+	}
+	if len(milestones) > 0 {
+		m.exporter.State.Milestones = append(m.exporter.State.Milestones, milestones...)
+	}
+}
+
+func (m *MilestoneService) WriteFile() error {
+	return m.exporter.WriteJsonFile(m.filename, m.exporter.State.Milestones)
 }

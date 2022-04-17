@@ -5,8 +5,13 @@ import (
 	"log"
 	"time"
 
+	"github.com/go-git/go-git/v5"
 	"github.com/xanzy/go-gitlab"
 )
+
+type RepositoryService struct {
+	*BaseService
+}
 
 type Repository struct {
 	Type          string     `json:"type"`
@@ -28,10 +33,29 @@ type Repository struct {
 	CreatedAt     *time.Time `json:"created_at"`
 }
 
-func getRepository(project *gitlab.Project) {
-	r, _, err := getClient().Repositories.ListTree(project.ID, &gitlab.ListTreeOptions{})
+func NewRepositoryService(e *Exporter) *RepositoryService {
+	return &RepositoryService{
+		BaseService: &BaseService{
+			exporter: e,
+			filename: "repositories.json",
+		},
+	}
+}
+
+func (r *RepositoryService) Clone(project *gitlab.Project) (*git.Repository, error) {
+	// Will be something like `repositories/gl-group1/gl-subgroup1/quux.git`.
+	dir := fmt.Sprintf("%s/%s.git", r.exporter.RepoDir, project.PathWithNamespace)
+	return git.PlainClone(dir, false, &git.CloneOptions{
+		URL: project.HTTPURLToRepo,
+	})
+}
+
+func (r *RepositoryService) Get() {
+	project := r.exporter.CurrentProject
+
+	repos, _, err := r.exporter.Client.Repositories.ListTree(project.ID, &gitlab.ListTreeOptions{})
 	if err != nil {
 		log.Fatalf("Failed to get repository information for projectID %d: %v", project.ID, err)
 	}
-	fmt.Println("r", r)
+	fmt.Println("repos", repos)
 }

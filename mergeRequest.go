@@ -8,7 +8,11 @@ import (
 	"github.com/xanzy/go-gitlab"
 )
 
-type PullRequest struct {
+type MergeRequestService struct {
+	*BaseService
+}
+
+type MergeRequest struct {
 	Type       string     `json:"type"`
 	URL        string     `json:"url"`
 	User       string     `json:"user"`
@@ -32,13 +36,26 @@ type Base struct {
 	Repo string `json:"repo"`
 }
 
-func getPullRequests(project *gitlab.Project) []PullRequest {
-	mergeRequests, _, err := getClient().MergeRequests.ListProjectMergeRequests(project.ID, &gitlab.ListProjectMergeRequestsOptions{})
+func NewMergeRequestService(e *Exporter) *MergeRequestService {
+	field := "Description"
+	return &MergeRequestService{
+		BaseService: &BaseService{
+			exporter:        e,
+			filename:        "merge_requests.json",
+			attachmentField: &field,
+		},
+	}
+}
+
+func (m *MergeRequestService) GetAll() ([]MergeRequest, error) {
+	project := m.exporter.CurrentProject
+
+	mergeRequests, _, err := m.exporter.Client.MergeRequests.ListProjectMergeRequests(project.ID, &gitlab.ListProjectMergeRequestsOptions{})
 	if err != nil {
-		log.Fatalf("Failed to get merge requests for projectID %d: %v", project.ID, err)
+		return nil, err
 	}
 
-	prs := make([]PullRequest, len(mergeRequests))
+	mrs := make([]MergeRequest, len(mergeRequests))
 	for i, mergeRequest := range mergeRequests {
 		var assignee *string
 		if mergeRequest.Assignee != nil {
@@ -68,7 +85,11 @@ func getPullRequests(project *gitlab.Project) []PullRequest {
 			}
 		}
 
-		prs[i] = PullRequest{
+		if m.attachmentField != nil {
+			m.exporter.Attachments.Export(*m.attachmentField, mergeRequest)
+		}
+
+		mrs[i] = MergeRequest{
 			Type:       "pull_request",
 			URL:        mergeRequest.WebURL,
 			User:       mergeRequest.Author.WebURL,
@@ -96,5 +117,19 @@ func getPullRequests(project *gitlab.Project) []PullRequest {
 		}
 	}
 
-	return prs
+	return mrs, nil
+}
+
+func (m *MergeRequestService) Export() {
+	mergeRequests, err := m.GetAll()
+	if err != nil {
+		log.Fatalf("Failed to get merge requests for projectID %d: %v", m.exporter.CurrentProject.ID, err)
+	}
+	if len(mergeRequests) > 0 {
+		m.exporter.State.MergeRequests = append(m.exporter.State.MergeRequests, mergeRequests...)
+	}
+}
+
+func (m *MergeRequestService) WriteFile() error {
+	return m.exporter.WriteJsonFile(m.filename, m.exporter.State.MergeRequests)
 }

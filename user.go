@@ -5,6 +5,10 @@ import (
 	"time"
 )
 
+type UserService struct {
+	*BaseService
+}
+
 type User struct {
 	Type      string     `json:"type"`
 	URL       string     `json:"url"`
@@ -22,7 +26,16 @@ type Email struct {
 	Primary bool   `json:"primary"`
 }
 
-func getEmail(email string) []Email {
+func NewUserService(e *Exporter) *UserService {
+	return &UserService{
+		BaseService: &BaseService{
+			exporter: e,
+			filename: "users.json",
+		},
+	}
+}
+
+func (u *UserService) GetEmail(email string) []Email {
 	if email != "" {
 		// TODO: This is kludgy!
 		var e []Email
@@ -36,13 +49,13 @@ func getEmail(email string) []Email {
 	}
 }
 
-func getUser() User {
-	user, _, err := getClient().Users.CurrentUser()
+func (u *UserService) GetUser() (*User, error) {
+	user, _, err := u.exporter.Client.Users.CurrentUser()
 	if err != nil {
-		log.Fatalf("Failed to get user: %v", err)
+		return nil, err
 	}
 
-	return User{
+	return &User{
 		Type:      "user",
 		URL:       user.WebURL,
 		Login:     user.Username,
@@ -50,7 +63,21 @@ func getUser() User {
 		Company:   nil,
 		Website:   user.WebsiteURL,
 		Location:  nil,
-		Emails:    getEmail(user.Email),
+		Emails:    u.GetEmail(user.Email),
 		CreatedAt: user.CreatedAt,
+	}, nil
+}
+
+func (u *UserService) Export() {
+	user, err := u.GetUser()
+	if err != nil {
+		log.Fatalf("Failed to get user: %v", err)
 	}
+	if user != nil {
+		u.exporter.State.Users = append(u.exporter.State.Users, *user)
+	}
+}
+
+func (u *UserService) WriteFile() error {
+	return u.exporter.WriteJsonFile(u.filename, u.exporter.State.Users)
 }

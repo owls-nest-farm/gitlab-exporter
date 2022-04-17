@@ -8,6 +8,10 @@ import (
 	"github.com/xanzy/go-gitlab"
 )
 
+type IssueService struct {
+	*BaseService
+}
+
 type Issue struct {
 	Type       string     `json:"type"`
 	URL        string     `json:"url"`
@@ -22,13 +26,26 @@ type Issue struct {
 	CreatedAt  *time.Time `json:"created_at"`
 }
 
-func getIssues(project *gitlab.Project) []Issue {
-	issues, _, err := getClient().Issues.ListProjectIssues(project.ID, &gitlab.ListProjectIssuesOptions{})
+func NewIssueService(e *Exporter) *IssueService {
+	field := "Description"
+	return &IssueService{
+		BaseService: &BaseService{
+			exporter:        e,
+			filename:        "issues.json",
+			attachmentField: &field,
+		},
+	}
+}
+
+func (i *IssueService) GetAll() ([]Issue, error) {
+	project := i.exporter.CurrentProject
+
+	issues, _, err := i.exporter.Client.Issues.ListProjectIssues(project.ID, &gitlab.ListProjectIssuesOptions{})
 	if err != nil {
-		log.Fatalf("Failed to get issues for projectID %d: %v", project.ID, err)
+		return nil, err
 	}
 
-	i := make([]Issue, len(issues))
+	iss := make([]Issue, len(issues))
 	for j, issue := range issues {
 		var assignee *string
 		if issue.Assignee != nil {
@@ -53,7 +70,11 @@ func getIssues(project *gitlab.Project) []Issue {
 			}
 		}
 
-		i[j] = Issue{
+		if i.attachmentField != nil {
+			i.exporter.Attachments.Export(*i.attachmentField, issue)
+		}
+
+		iss[j] = Issue{
 			Type:       "issue",
 			URL:        issue.WebURL,
 			Repository: project.WebURL,
@@ -68,5 +89,19 @@ func getIssues(project *gitlab.Project) []Issue {
 		}
 	}
 
-	return i
+	return iss, nil
+}
+
+func (i *IssueService) Export() {
+	issues, err := i.GetAll()
+	if err != nil {
+		log.Fatalf("Failed to get issues for projectID %d: %v", i.exporter.CurrentProject.ID, err)
+	}
+	if len(issues) > 0 {
+		i.exporter.State.Issues = append(i.exporter.State.Issues, issues...)
+	}
+}
+
+func (i *IssueService) WriteFile() error {
+	return i.exporter.WriteJsonFile(i.filename, i.exporter.State.Issues)
 }

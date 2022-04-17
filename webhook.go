@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-
-	"github.com/xanzy/go-gitlab"
 )
+
+type WebhookService struct {
+	*BaseService
+}
 
 type Webhook struct {
 	PayloadURL            string
@@ -16,9 +18,18 @@ type Webhook struct {
 	Active                bool
 }
 
-func getWebhooks(project *gitlab.Project) ([]Webhook, error) {
-	api := fmt.Sprintf("projects/%d/hooks", project.ID)
-	resp, err := newRequest(api)
+func NewWebhookService(e *Exporter) *WebhookService {
+	return &WebhookService{
+		BaseService: &BaseService{
+			exporter: e,
+			filename: "webhooks.json",
+		},
+	}
+}
+
+func (ws *WebhookService) GetAll() ([]Webhook, error) {
+	api := fmt.Sprintf("projects/%d/hooks", ws.exporter.CurrentProject.ID)
+	resp, err := ws.exporter.NewRequest(api)
 	if err != nil {
 		log.Fatalf("Failed to create new request: %v", err)
 	}

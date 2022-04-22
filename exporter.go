@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -152,6 +154,128 @@ func NewExporter(exports Records, baseAPI string) *Exporter {
 	return e
 }
 
+// Taken from `https://gist.github.com/mimoo/25fc9716e0f1353791f5908f94d6e726`.
+func (e *Exporter) Compress() error {
+	src := e.BaseDir
+
+	filename := "migration.tar.gz"
+	buf, err := os.Create(filename)
+	if err != nil {
+		log.Fatalf("Could not get create filename `%s`: %v", filename, err)
+	}
+
+	// tar > gzip > buf
+	zr := gzip.NewWriter(buf)
+	tw := tar.NewWriter(zr)
+
+	// is file a folder?
+	fi, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	mode := fi.Mode()
+	if mode.IsRegular() {
+		// get header
+		header, err := tar.FileInfoHeader(fi, src)
+		if err != nil {
+			return err
+		}
+		// write header
+		if err := tw.WriteHeader(header); err != nil {
+			return err
+		}
+		// get content
+		data, err := os.Open(src)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(tw, data); err != nil {
+			return err
+		}
+	} else if mode.IsDir() { // folder
+		// walk through every file in the folder
+		filepath.Walk(src, func(file string, fi os.FileInfo, err error) error {
+			// generate tar header
+			header, err := tar.FileInfoHeader(fi, file)
+			if err != nil {
+				return err
+			}
+
+			// must provide real name
+			// (see https://golang.org/src/archive/tar/common.go?#L626)
+			header.Name = filepath.ToSlash(file)
+
+			// write header
+			if err := tw.WriteHeader(header); err != nil {
+				return err
+			}
+			// if not a dir, write file content
+			if !fi.IsDir() {
+				data, err := os.Open(file)
+				if err != nil {
+					return err
+				}
+				if _, err := io.Copy(tw, data); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	} else {
+		return fmt.Errorf("error: file type not supported")
+	}
+
+	// produce tar
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	// produce gzip
+	if err := zr.Close(); err != nil {
+		return err
+	}
+	//
+	return nil
+}
+
+func (e *Exporter) DownloadFile(path string) error {
+	client := http.Client{
+		CheckRedirect: func(r *http.Request, via []*http.Request) error {
+			r.URL.Opaque = r.URL.Path
+			return nil
+		},
+	}
+
+	dir, file := filepath.Split(path)
+	downloadsDir := fmt.Sprintf("%s/%s/%s", e.BaseDir, e.AttachmentDir, dir)
+	// Create dirs for attachments, i.e., `{cwd}/migration/attachments/uploads/1e690825814e23a29bd8810f567829e7`.
+	err := e.Mkdirp(downloadsDir)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.Get(fmt.Sprintf("%s/%s", e.CurrentProject.WebURL, path))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	f, err := os.OpenFile(fmt.Sprintf("%s/%s", downloadsDir, file), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	contentType, err := e.GetContentType(fmt.Sprintf("%s/%s", downloadsDir, file))
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("contentType", *contentType)
+
+	_, err = io.Copy(f, resp.Body)
+	return err
+}
+
 func (e *Exporter) Export() error {
 	for _, export := range e.Exports {
 		namespace := export[0]
@@ -215,6 +339,28 @@ func (e *Exporter) Export() error {
 	return nil
 }
 
+func (e *Exporter) GetContentType(filename string) (*string, error) {
+	f, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	buffer := make([]byte, 512)
+
+	_, err = f.Read(buffer)
+	if err != nil {
+		return nil, err
+	}
+
+	contentType := http.DetectContentType(buffer)
+
+	return &contentType, nil
+}
+func (e *Exporter) Mkdirp(path string) error {
+	return os.MkdirAll(path, 0755)
+}
+
 func (e *Exporter) NewRequest(api string) (*http.Response, error) {
 	uri := fmt.Sprintf("%s/%s", e.BaseAPI, api)
 
@@ -238,68 +384,6 @@ func (e *Exporter) NewRequest(api string) (*http.Response, error) {
 	}
 	//	defer resp.Body.Close()
 	return resp, nil
-}
-
-func (e *Exporter) Mkdirp(path string) error {
-	return os.MkdirAll(path, 0755)
-}
-
-func (e *Exporter) DownloadFile(path string) error {
-	client := http.Client{
-		CheckRedirect: func(r *http.Request, via []*http.Request) error {
-			r.URL.Opaque = r.URL.Path
-			return nil
-		},
-	}
-
-	dir, file := filepath.Split(path)
-	downloadsDir := fmt.Sprintf("%s/%s/%s", e.BaseDir, e.AttachmentDir, dir)
-	// Create dirs for attachments, i.e., `{cwd}/migration/attachments/uploads/1e690825814e23a29bd8810f567829e7`.
-	err := e.Mkdirp(downloadsDir)
-	if err != nil {
-		return err
-	}
-
-	resp, err := client.Get(fmt.Sprintf("%s/%s", e.CurrentProject.WebURL, path))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	f, err := os.OpenFile(fmt.Sprintf("%s/%s", downloadsDir, file), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	contentType, err := e.GetContentType(fmt.Sprintf("%s/%s", downloadsDir, file))
-	if err != nil {
-		return err
-	}
-
-	fmt.Println("contentType", *contentType)
-
-	_, err = io.Copy(f, resp.Body)
-	return err
-}
-
-func (e *Exporter) GetContentType(filename string) (*string, error) {
-	f, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	buffer := make([]byte, 512)
-
-	_, err = f.Read(buffer)
-	if err != nil {
-		return nil, err
-	}
-
-	contentType := http.DetectContentType(buffer)
-
-	return &contentType, nil
 }
 
 func (e *Exporter) WriteFile(filename string, b []byte) error {

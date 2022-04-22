@@ -1,9 +1,10 @@
+CC=go
 BIN_NAME=gitlab-exporter
 
 clean:
-	rm -rf ${BIN_NAME} migration
+	rm -rf ${BIN_NAME} migration migration.tar.gz
 
 debug:
-	go build
+	${CC} build
 	dlv exec ./${BIN_NAME} -- --file examples/gitlab.json
 

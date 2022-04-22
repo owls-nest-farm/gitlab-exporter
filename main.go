@@ -16,5 +16,9 @@ func main() {
 		panic(err)
 	}
 	exporter := NewExporter(records, "https://gitlab.com/api/v4/")
-	exporter.Export()
+	err = exporter.Export()
+	if err != nil {
+		panic(err)
+	}
+	exporter.Compress()
 }

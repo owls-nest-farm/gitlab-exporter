@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sync"
 
 	"github.com/xanzy/go-gitlab"
 )
@@ -277,36 +278,44 @@ func (e *Exporter) DownloadFile(path string) error {
 }
 
 func (e *Exporter) Export() error {
-	for _, export := range e.Exports {
-		namespace := export[0]
-		projectName := export[1]
-		projects, _, err := e.Groups.GetGroupProject(namespace, projectName)
-		if err != nil {
-			log.Fatalf("Failed to get projects: %v", err)
-		}
+	var wg sync.WaitGroup
+	wg.Add(len(e.Exports))
 
-		if len(projects) > 0 {
-			for _, project := range projects {
-				_, err := e.Repositories.Clone(project)
-				if err != nil {
+	for _, export := range e.Exports {
+		go func(export []string) {
+			namespace := export[0]
+			projectName := export[1]
+			projects, _, err := e.Groups.GetGroupProject(namespace, projectName)
+			if err != nil {
+				log.Fatalf("Failed to get projects: %v", err)
+			}
+
+			if len(projects) > 0 {
+				for _, project := range projects {
+					_, err := e.Repositories.Clone(project)
 					if err != nil {
-						log.Fatalf("Failed to clone repository `%s`: %v", project.Name, err)
+						if err != nil {
+							log.Fatalf("Failed to clone repository `%s`: %v", project.Name, err)
+						}
 					}
+
+					e.CurrentProject = project
+
+					e.Branches.Export()
+					e.CommitComments.Export()
+					e.Issues.Export()
+					e.Labels.Export()
+					e.MergeRequests.Export()
+					e.Milestones.Export()
+					e.Tags.Export()
+					e.Users.Export()
 				}
 
-				e.CurrentProject = project
-
-				e.Branches.Export()
-				e.CommitComments.Export()
-				e.Issues.Export()
-				e.Labels.Export()
-				e.MergeRequests.Export()
-				e.Milestones.Export()
-				e.Tags.Export()
-				e.Users.Export()
 			}
-		}
+			wg.Done()
+		}(export)
 	}
+	wg.Wait()
 
 	if len(e.State.Branches) > 0 {
 		e.Branches.WriteFile()

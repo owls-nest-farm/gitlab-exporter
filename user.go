@@ -74,7 +74,17 @@ func (u *UserService) Export() {
 		log.Fatalf("Failed to get user: %v", err)
 	}
 	if user != nil {
-		u.exporter.State.Users = append(u.exporter.State.Users, *user)
+		var contains bool
+		for _, us := range u.exporter.State.Users {
+			if us.Login == user.Login {
+				contains = true
+				break
+			}
+		}
+
+		if !contains {
+			u.exporter.State.Users = append(u.exporter.State.Users, *user)
+		}
 	}
 }
 

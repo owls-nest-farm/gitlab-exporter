@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -34,12 +35,15 @@ type Exporter struct {
 
 	CurrentUser *User `json:"user"`
 
-	Exports       Records  `json:"exports"`
-	BaseAPI       *url.URL `json:"base_api"`
-	BaseDir       string   `json:"base_dir"`
-	AttachmentDir string   `json:"attachments_dir"`
-	RepoDir       string   `json:"repo_dir"`
-	Token         APIToken `json:"token"`
+	Exports Records  `json:"exports"`
+	BaseAPI *url.URL `json:"base_api"`
+	Token   APIToken `json:"token"`
+
+	BaseDir          string `json:"base_dir"`
+	TmpAttachmentDir string `json:"tmp_attachment_dir"`
+	TmpRepositoryDir string `json:"tmp_repository_dir"`
+	StaticDir        string `json:"static_dir"`
+	TmpDir           string `json:"tmp_dir"`
 
 	AttachmentRegex *regexp.Regexp `json:"attachment_regex"`
 
@@ -112,25 +116,18 @@ func NewExporter(exports Records, baseAPI string) *Exporter {
 		State:           &State{},
 		Exports:         exports,
 		BaseAPI:         uri,
-		AttachmentDir:   "attachments",
+		BaseDir:         "migration",
+		StaticDir:       "static",
 		Token:           APIToken(apiToken),
 		AttachmentRegex: regexp.MustCompile(`^\[(.*)\]\((.*)\)$`),
 	}
 
-	migrationDir := "migration"
-	err = e.Mkdirp(migrationDir)
-	if err != nil {
-		log.Fatalf("Failed to create base migration directory: %v", err)
-	}
+	e.CreateTmpDirs()
 
-	repoDir := fmt.Sprintf("%s/%s", migrationDir, "repositories")
-	err = e.Mkdirp(repoDir)
+	err = e.WriteStaticFiles()
 	if err != nil {
-		log.Fatalf("Failed to create repositories directory: %v", err)
+		log.Fatalf("Failed to read entries in directory `%s`: %v", e.StaticDir, err)
 	}
-
-	e.BaseDir = migrationDir
-	e.RepoDir = repoDir
 
 	e.Attachments = NewAttachmentService(e)
 	e.Branches = NewBranchService(e)
@@ -157,7 +154,7 @@ func NewExporter(exports Records, baseAPI string) *Exporter {
 
 // Taken from `https://gist.github.com/mimoo/25fc9716e0f1353791f5908f94d6e726`.
 func (e *Exporter) Compress() error {
-	src := e.BaseDir
+	src := e.TmpDir
 
 	filename := "migration.tar.gz"
 	buf, err := os.Create(filename)
@@ -238,6 +235,27 @@ func (e *Exporter) Compress() error {
 	return nil
 }
 
+func (e *Exporter) CreateTmpDirs() {
+	e.TmpDir = filepath.Join(os.TempDir(), "migration")
+	e.TmpAttachmentDir = filepath.Join(e.TmpDir, "attachments")
+	e.TmpRepositoryDir = filepath.Join(e.TmpDir, "repositories")
+
+	err := e.Mkdirp(e.TmpDir)
+	if err != nil {
+		log.Fatalf("Failed to create base migration directory: %v", err)
+	}
+
+	err = e.Mkdirp(e.TmpAttachmentDir)
+	if err != nil {
+		log.Fatalf("Failed to create attachments directory: %v", err)
+	}
+
+	err = e.Mkdirp(e.TmpRepositoryDir)
+	if err != nil {
+		log.Fatalf("Failed to create repositories directory: %v", err)
+	}
+}
+
 func (e *Exporter) DownloadFile(path string) error {
 	client := http.Client{
 		CheckRedirect: func(r *http.Request, via []*http.Request) error {
@@ -247,7 +265,7 @@ func (e *Exporter) DownloadFile(path string) error {
 	}
 
 	dir, file := filepath.Split(path)
-	downloadsDir := fmt.Sprintf("%s/%s/%s", e.BaseDir, e.AttachmentDir, dir)
+	downloadsDir := filepath.Join(e.TmpAttachmentDir, dir)
 	// Create dirs for attachments, i.e., `{cwd}/migration/attachments/uploads/1e690825814e23a29bd8810f567829e7`.
 	err := e.Mkdirp(downloadsDir)
 	if err != nil {
@@ -260,13 +278,13 @@ func (e *Exporter) DownloadFile(path string) error {
 	}
 	defer resp.Body.Close()
 
-	f, err := os.OpenFile(fmt.Sprintf("%s/%s", downloadsDir, file), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(filepath.Join(downloadsDir, file), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	contentType, err := e.GetContentType(fmt.Sprintf("%s/%s", downloadsDir, file))
+	contentType, err := e.GetContentType(filepath.Join(downloadsDir, file))
 	if err != nil {
 		return err
 	}
@@ -317,33 +335,7 @@ func (e *Exporter) Export() error {
 	}
 	wg.Wait()
 
-	if len(e.State.Branches) > 0 {
-		e.Branches.WriteFile()
-	}
-
-	if len(e.State.CommitComments) > 0 {
-		e.CommitComments.WriteFile()
-	}
-
-	if len(e.State.Issues) > 0 {
-		e.Issues.WriteFile()
-	}
-
-	if len(e.State.MergeRequests) > 0 {
-		e.MergeRequests.WriteFile()
-	}
-
-	if len(e.State.Milestones) > 0 {
-		e.Milestones.WriteFile()
-	}
-
-	if len(e.State.Tags) > 0 {
-		e.Tags.WriteFile()
-	}
-
-	if len(e.State.Users) > 0 {
-		e.Users.WriteFile()
-	}
+	e.GetState()
 
 	return nil
 }
@@ -366,6 +358,41 @@ func (e *Exporter) GetContentType(filename string) (*string, error) {
 
 	return &contentType, nil
 }
+
+func (e *Exporter) GetState() {
+	if len(e.State.Branches) > 0 {
+		e.Branches.WriteFile()
+	}
+
+	if len(e.State.CommitComments) > 0 {
+		e.CommitComments.WriteFile()
+	}
+
+	if len(e.State.Issues) > 0 {
+		e.Issues.WriteFile()
+	}
+
+	if len(e.State.Groups) > 0 {
+		e.Groups.WriteFile()
+	}
+
+	if len(e.State.MergeRequests) > 0 {
+		e.MergeRequests.WriteFile()
+	}
+
+	if len(e.State.Milestones) > 0 {
+		e.Milestones.WriteFile()
+	}
+
+	if len(e.State.Tags) > 0 {
+		e.Tags.WriteFile()
+	}
+
+	if len(e.State.Users) > 0 {
+		e.Users.WriteFile()
+	}
+}
+
 func (e *Exporter) Mkdirp(path string) error {
 	return os.MkdirAll(path, 0755)
 }
@@ -413,5 +440,32 @@ func (e *Exporter) WriteJsonFile(filename string, state interface{}) error {
 		log.Fatal(err)
 	}
 	// Write the file into the `e.BaseDir` migration/archive directory.
-	return e.WriteFile(fmt.Sprintf("%s/%s", e.BaseDir, filename), b)
+	return e.WriteFile(filepath.Join(e.TmpDir, filename), b)
+}
+
+func (e *Exporter) WriteStaticFiles() error {
+	// static/urls.json
+	// static/schema.json -> {version => "1.2.0"}
+	entries, err := ioutil.ReadDir(e.StaticDir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		f, err := os.Open(filepath.Join(e.StaticDir, entry.Name()))
+		if err != nil {
+			log.Fatalf("Failed to open file entry `%s`: %v", entry.Name, err)
+		}
+		defer f.Close()
+		b, err := ioutil.ReadAll(f)
+		if err != nil {
+			log.Fatalf("Failed to read file entry `%s`: %v", entry.Name, err)
+		}
+		err = e.WriteFile(filepath.Join(e.TmpDir, entry.Name()), b)
+		if err != nil {
+			log.Fatalf("Failed to write file entry `%s`: %v", entry.Name, err)
+		}
+	}
+
+	return nil
 }

@@ -2,7 +2,7 @@ CC=go
 BIN_NAME=gitlab-exporter
 
 clean:
-	rm -rf ${BIN_NAME} migration migration.tar.gz
+	rm -rf ${BIN_NAME} /tmp/migration migration.tar.gz
 
 debug:
 	${CC} build

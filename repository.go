@@ -44,8 +44,8 @@ func NewRepositoryService(e *Exporter) *RepositoryService {
 
 func (r *RepositoryService) Clone(project *gitlab.Project) (*git.Repository, error) {
 	// Will be something like `repositories/gl-group1/gl-subgroup1/quux.git`.
-	dir := fmt.Sprintf("%s/%s.git", r.exporter.RepoDir, project.PathWithNamespace)
-	return git.PlainClone(dir, false, &git.CloneOptions{
+	dir := fmt.Sprintf("%s/%s.git", r.exporter.TmpRepositoryDir, project.PathWithNamespace)
+	return git.PlainClone(dir, true, &git.CloneOptions{
 		URL: project.HTTPURLToRepo,
 	})
 }

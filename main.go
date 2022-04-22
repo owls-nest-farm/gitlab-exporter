@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/csv"
+	"errors"
+	"io/fs"
 	"os"
 )
 
@@ -21,4 +23,9 @@ func main() {
 		panic(err)
 	}
 	exporter.Compress()
+	if _, err := os.Stat(exporter.TmpDir); !errors.Is(err, fs.ErrNotExist) {
+		if err := os.RemoveAll(exporter.TmpDir); err != nil {
+			panic(err)
+		}
+	}
 }

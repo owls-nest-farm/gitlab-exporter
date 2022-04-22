@@ -69,6 +69,7 @@ type State struct {
 	Branches       []Branch        `json:"branches"`
 	CommitComments []CommitComment `json:"commit_comments"`
 	Issues         []Issue         `json:"issues"`
+	Groups         []Group         `json:"groups"`
 	Labels         []Label         `json:"labels"`
 	MergeRequests  []MergeRequest  `json:"merge_requests"`
 	Milestones     []Milestone     `json:"milestones"`
@@ -322,6 +323,7 @@ func (e *Exporter) Export() error {
 					e.Branches.Export()
 					e.CommitComments.Export()
 					e.Issues.Export()
+					e.Groups.Export(namespace)
 					e.Labels.Export()
 					e.MergeRequests.Export()
 					e.Milestones.Export()

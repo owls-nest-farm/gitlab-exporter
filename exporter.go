@@ -67,6 +67,7 @@ type Exporter struct {
 type State struct {
 	Attachments    []Attachment    `json:"attachments"`
 	Branches       []Branch        `json:"branches"`
+	Collaborators  []User          `json:"collaborators"`
 	CommitComments []CommitComment `json:"commit_comments"`
 	Issues         []Issue         `json:"issues"`
 	Groups         []Group         `json:"groups"`
@@ -113,8 +114,12 @@ func NewExporter(exports Records, baseAPI string) *Exporter {
 	//	}
 
 	e := &Exporter{
-		Client:          gitlabClient,
-		State:           &State{},
+		Client: gitlabClient,
+		State: &State{ // Set defalt values so "null" is never a value in the json.
+			Collaborators: make([]User, 0),
+			Labels:        make([]Label, 0),
+			Webhooks:      make([]Webhook, 0),
+		},
 		Exports:         exports,
 		BaseAPI:         uri,
 		BaseDir:         "migration",
@@ -237,11 +242,15 @@ func (e *Exporter) Compress() error {
 }
 
 func (e *Exporter) CreateTmpDirs() {
-	e.TmpDir = filepath.Join(os.TempDir(), "migration")
+	dirName, err := e.MkTempDir("tmp")
+	if err != nil {
+		log.Fatalf("Failed to create tempDir: %v", err)
+	}
+	e.TmpDir = dirName
 	e.TmpAttachmentDir = filepath.Join(e.TmpDir, "attachments")
 	e.TmpRepositoryDir = filepath.Join(e.TmpDir, "repositories")
 
-	err := e.Mkdirp(e.TmpDir)
+	err = e.Mkdirp(e.TmpDir)
 	if err != nil {
 		log.Fatalf("Failed to create base migration directory: %v", err)
 	}
@@ -290,7 +299,7 @@ func (e *Exporter) DownloadFile(path string) error {
 		return err
 	}
 
-	fmt.Println("contentType", *contentType)
+	fmt.Println("contentType", contentType)
 
 	_, err = io.Copy(f, resp.Body)
 	return err
@@ -320,6 +329,7 @@ func (e *Exporter) Export() error {
 
 					e.CurrentProject = project
 
+					//e.Projects.Export(project.ID)
 					e.Branches.Export()
 					e.CommitComments.Export()
 					e.Issues.Export()
@@ -329,6 +339,7 @@ func (e *Exporter) Export() error {
 					e.Milestones.Export()
 					e.Tags.Export()
 					e.Users.Export()
+					e.Repositories.Export(project)
 				}
 
 			}
@@ -386,6 +397,10 @@ func (e *Exporter) GetState() {
 		e.Milestones.WriteFile()
 	}
 
+	if len(e.State.Repositories) > 0 {
+		e.Repositories.WriteFile()
+	}
+
 	if len(e.State.Tags) > 0 {
 		e.Tags.WriteFile()
 	}
@@ -397,6 +412,15 @@ func (e *Exporter) GetState() {
 
 func (e *Exporter) Mkdirp(path string) error {
 	return os.MkdirAll(path, 0755)
+}
+
+func (e *Exporter) MkTempDir(tmpDir string) (string, error) {
+	if _, err := os.Stat(tmpDir); err != nil {
+		if err := os.MkdirAll(tmpDir, 0755); err != nil {
+			return "", err
+		}
+	}
+	return ioutil.TempDir(tmpDir, "gitlab-exporter")
 }
 
 func (e *Exporter) NewRequest(api string) (*http.Response, error) {

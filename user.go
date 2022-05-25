@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"sort"
 	"time"
 )
 
@@ -89,5 +90,9 @@ func (u *UserService) Export() {
 }
 
 func (u *UserService) WriteFile() error {
-	return u.exporter.WriteJsonFile(u.filename, u.exporter.State.Users)
+	users := u.exporter.State.Users
+	sort.Slice(users, func(i, j int) bool {
+		return users[i].Name > users[j].Name
+	})
+	return u.exporter.WriteJsonFile(u.filename, users)
 }

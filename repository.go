@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"sort"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -19,16 +19,16 @@ type Repository struct {
 	Owner         string     `json:"owner"`
 	Name          string     `json:"name"`
 	Description   string     `json:"description"`
-	Website       string     `json:"website"`
-	Private       string     `json:"private"`
+	Website       *string    `json:"website"`
+	Private       bool       `json:"private"`
 	HasIssues     bool       `json:"has_issues"`
 	HasWiki       bool       `json:"has_wiki"`
 	HasDownloads  bool       `json:"has_downloads"`
-	Labels        []string   `json:"labels"`
-	Webhooks      []string   `json:"webhooks"`
-	Collaborators []string   `json:"collaborators"`
-	GitUrl        string     `json:"git_url"`
-	WikiUrl       string     `json:"wiki_url"`
+	Labels        []Label    `json:"labels"`
+	Webhooks      []Webhook  `json:"webhooks"`
+	Collaborators []User     `json:"collaborators"`
+	GitURL        string     `json:"git_url"`
+	WikiURL       *string    `json:"wiki_url" omitempty:"wiki_url"`
 	DefaultBranch string     `json:"default_branch"`
 	CreatedAt     *time.Time `json:"created_at"`
 }
@@ -50,12 +50,53 @@ func (r *RepositoryService) Clone(project *gitlab.Project) (*git.Repository, err
 	})
 }
 
-func (r *RepositoryService) Get() {
-	project := r.exporter.CurrentProject
+//func (r *RepositoryService) GetAll(gid string) ([]*gitlab.TreeNode, *gitlab.Response, error) {
+//	return r.exporter.Client.Repositories.ListTree(gid, &gitlab.ListTreeOptions{})
+//}
 
-	repos, _, err := r.exporter.Client.Repositories.ListTree(project.ID, &gitlab.ListTreeOptions{})
-	if err != nil {
-		log.Fatalf("Failed to get repository information for projectID %d: %v", project.ID, err)
+func (r *RepositoryService) Export(project *gitlab.Project) {
+	state := r.exporter.State
+	var private bool
+	if project.Visibility == "private" {
+		private = true
+	} else {
+		private = false
 	}
-	fmt.Println("repos", repos)
+	var owner string
+	if project.Namespace != nil {
+		owner = project.Namespace.WebURL
+	}
+	repo := Repository{
+		Type:          "repository",
+		URL:           project.WebURL,
+		Name:          project.Name,
+		Description:   project.Description,
+		Owner:         owner,
+		DefaultBranch: project.DefaultBranch,
+		Private:       private,
+		HasDownloads:  project.JobsEnabled,
+		HasIssues:     project.IssuesEnabled,
+		HasWiki:       project.WikiEnabled,
+		Website:       nil,
+		CreatedAt:     project.CreatedAt,
+		//		Collaborators: state.Users,
+		Collaborators: []User{},
+		Labels:        state.Labels,
+		Webhooks:      state.Webhooks,
+		GitURL:        fmt.Sprintf("tarball://root/repositories/%s.git", project.PathWithNamespace),
+	}
+	var wikiURL string
+	if project.WikiEnabled {
+		wikiURL = fmt.Sprintf("tarball://root/repositories/%s.wiki.git", project.PathWithNamespace)
+		repo.WikiURL = &wikiURL
+	}
+	r.exporter.State.Repositories = append(r.exporter.State.Repositories, repo)
+}
+
+func (r *RepositoryService) WriteFile() error {
+	repos := r.exporter.State.Repositories
+	sort.Slice(repos, func(i, j int) bool {
+		return repos[i].Name > repos[j].Name
+	})
+	return r.exporter.WriteJsonFile(r.filename, repos)
 }

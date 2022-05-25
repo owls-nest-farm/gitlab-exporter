@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"sort"
 	"time"
 
 	"github.com/xanzy/go-gitlab"
@@ -71,5 +72,9 @@ func (m *MilestoneService) Export() {
 }
 
 func (m *MilestoneService) WriteFile() error {
-	return m.exporter.WriteJsonFile(m.filename, m.exporter.State.Milestones)
+	milestones := m.exporter.State.MergeRequests
+	sort.Slice(milestones, func(i, j int) bool {
+		return milestones[i].Title > milestones[j].Title
+	})
+	return m.exporter.WriteJsonFile(m.filename, milestones)
 }

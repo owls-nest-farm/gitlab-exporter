@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sort"
 	"time"
 
 	"github.com/xanzy/go-gitlab"
@@ -30,7 +31,7 @@ func NewLabelService(e *Exporter) *LabelService {
 func (l *LabelService) GetAll() ([]Label, error) {
 	labels, _, err := l.exporter.Client.Labels.ListLabels(l.exporter.CurrentProject.ID, &gitlab.ListLabelsOptions{})
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	lbls := make([]Label, len(labels))
 	for i, label := range labels {
@@ -53,6 +54,9 @@ func (l *LabelService) Export() {
 		panic(err)
 	}
 	if len(labels) > 0 {
+		sort.Slice(labels, func(i, j int) bool {
+			return labels[i].Name > labels[j].Name
+		})
 		l.exporter.State.Labels = append(l.exporter.State.Labels, labels...)
 	}
 }

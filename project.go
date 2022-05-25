@@ -1,7 +1,11 @@
 package main
 
 import (
+	"fmt"
+	"log"
 	"time"
+
+	"github.com/xanzy/go-gitlab"
 )
 
 type ProjectService struct {
@@ -29,8 +33,8 @@ func NewProjectService(e *Exporter) *ProjectService {
 	}
 }
 
-//func (ps *ProjectService) GetAll() ([]*gitlab.Project, *gitlab.Response, error) {
-func (ps *ProjectService) List() []int {
+//func (p *ProjectService) GetAll() ([]*gitlab.Project, *gitlab.Response, error) {
+func (p *ProjectService) List() []int {
 	return []int{
 		35304986,
 		35304985,
@@ -38,14 +42,14 @@ func (ps *ProjectService) List() []int {
 	}
 	//	t := true
 	//	f := false
-	//	return ps.exporter.Client.Projects.ListProjects(&gitlab.ListProjectsOptions{
+	//	return p.exporter.Client.Projects.ListProjects(&gitlab.ListProjectsOptions{
 	//		Archived:   &f, // Don't get deleted projects, which are considered archived.
 	//		Membership: &t, // Only get projects to which the authenticated user has access.
 	//	})
 }
 
-//func (ps *ProjectService) ProjectIDs() []int {
-//	projects, _, err := ps.List()
+//func (p *ProjectService) ProjectIDs() []int {
+//	projects, _, err := p.List()
 //	if err != nil {
 //		log.Fatalf("Failed to get user: %v", err)
 //	}
@@ -69,51 +73,15 @@ func (ps *ProjectService) List() []int {
 //	//	}
 //}
 
-//func (ps *ProjectService) Get() {
-//	for _, projectID := range ps.ProjectIDs() {
-//		project, _, err := ps.exporter.Client.Projects.GetProject(projectID, &gitlab.GetProjectOptions{})
-//		if err != nil {
-//			log.Fatalf("Failed to get projectID %d: %v", projectID, err)
-//		}
-//
-//		//		getRepository(project)
-//		//		labels, _, err := getLabels(project)
-//		//		if err != nil {
-//		//			log.Fatalf("Failed to get labels for projectID %d: %v", projectID, err)
-//		//		}
-//		//		fmt.Println(labels)
-//
-//		//		ps := getIssues(project)
-//		//		if len(ps) > 0 {
-//		//			file, _ := json.Marshal(ps)
-//		//			ioutil.WriteFile("issues.json", file, 0644)
-//		//		}
-//		//
-//		//		prs := getPullRequests(project)
-//		//		if len(prs) > 0 {
-//		//			file, _ := json.Marshal(prs)
-//		//			ioutil.WriteFile("pull_requests.json", file, 0644)
-//		//		}
-//		//		commits, _, err := getCommits(project)
-//		//
-//		//		if err != nil {
-//		//			log.Fatalf("Failed to get commits for projectID %d: %v", project.ID, err)
-//		//		}
-//		//		res, _ := getCommitComments(project)
-//		//		fmt.Println("res", res)
-//		res2, _ := getWebhooks(project)
-//		fmt.Println("res2", res2)
-//		//		res3, _ := getTags(project)
-//		//		fmt.Println("res3", res3)
-//		//		ccs := getCommitComments(project, commits)
-//		//		if project.ID == 35304986 {
-//		//			if len(ccs) > 0 {
-//		//				fmt.Printf("%+v\n", ccs)
-//		//				file, _ := json.Marshal(ccs)
-//		//				ioutil.WriteFile("commit_comments.json", file, 0644)
-//		//			}
-//		//		}
-//		//		fmt.Println("commits", len(commits))
-//		//		fmt.Println("projectID", project.ID)
-//	}
-//}
+func (p *ProjectService) Get(pid int) (*gitlab.Project, *gitlab.Response, error) {
+	return p.exporter.Client.Projects.GetProject(pid, &gitlab.GetProjectOptions{})
+}
+
+func (p *ProjectService) Export(pid int) {
+	project, _, err := p.Get(pid)
+	if err != nil {
+		log.Fatalf("[ERROR] Failed to get project %d: %v", pid, err)
+	}
+	//	fmt.Println("project state", p.exporter.State)
+	fmt.Println("project", project)
+}

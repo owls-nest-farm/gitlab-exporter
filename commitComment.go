@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/url"
+	"sort"
 	"time"
 )
 
@@ -130,5 +131,9 @@ func (c *CommitCommentService) Export() {
 }
 
 func (c *CommitCommentService) WriteFile() error {
-	return c.exporter.WriteJsonFile(c.filename, c.exporter.State.CommitComments)
+	commitComments := c.exporter.State.CommitComments
+	sort.Slice(commitComments, func(i, j int) bool {
+		return commitComments[i].Note > commitComments[j].Note
+	})
+	return c.exporter.WriteJsonFile(c.filename, commitComments)
 }

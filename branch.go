@@ -1,6 +1,8 @@
 package main
 
 import (
+	"sort"
+
 	"github.com/xanzy/go-gitlab"
 )
 
@@ -87,5 +89,9 @@ func (b *BranchService) Export() {
 }
 
 func (b *BranchService) WriteFile() error {
-	return b.exporter.WriteJsonFile(b.filename, b.exporter.State.Branches)
+	branches := b.exporter.State.Branches
+	sort.Slice(branches, func(i, j int) bool {
+		return branches[i].Name > branches[j].Name
+	})
+	return b.exporter.WriteJsonFile(b.filename, branches)
 }

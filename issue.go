@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/xanzy/go-gitlab"
@@ -103,5 +104,9 @@ func (i *IssueService) Export() {
 }
 
 func (i *IssueService) WriteFile() error {
-	return i.exporter.WriteJsonFile(i.filename, i.exporter.State.Issues)
+	issues := i.exporter.State.Issues
+	sort.Slice(issues, func(i, j int) bool {
+		return issues[i].User > issues[j].User
+	})
+	return i.exporter.WriteJsonFile(i.filename, issues)
 }

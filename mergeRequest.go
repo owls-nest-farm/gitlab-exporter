@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/xanzy/go-gitlab"
@@ -57,63 +58,72 @@ func (m *MergeRequestService) GetAll() ([]MergeRequest, error) {
 
 	mrs := make([]MergeRequest, len(mergeRequests))
 	for i, mergeRequest := range mergeRequests {
-		var assignee *string
-		if mergeRequest.Assignee != nil {
-			assignee = &mergeRequest.Assignee.WebURL
+		mergeRequestCommits, _, err := m.exporter.Client.MergeRequests.GetMergeRequestCommits(project.ID, mergeRequest.IID, &gitlab.GetMergeRequestCommitsOptions{})
+		if err != nil {
+			return nil, err
 		}
 
-		var milestone *string
-		if mergeRequest.Milestone != nil {
-			milestone = &mergeRequest.Milestone.WebURL
-		}
-
-		var mergedAt *time.Time
-		if mergeRequest.State == "merged" {
-			mergedAt = mergeRequest.UpdatedAt
-		}
-
-		var closedAt *time.Time
-		if mergeRequest.State == "closed" || mergeRequest.State == "merged" {
-			closedAt = mergeRequest.UpdatedAt
-		}
-
-		var labels []string
-		if len(mergeRequest.Labels) > 0 {
-			labels = make([]string, len(mergeRequest.Labels))
-			for i, label := range mergeRequest.Labels {
-				labels[i] = fmt.Sprintf("%s/labels#/%s", project.WebURL, label)
+		if len(mergeRequestCommits) == 0 {
+			fmt.Println("no merge request commits!")
+		} else {
+			var assignee *string
+			if mergeRequest.Assignee != nil {
+				assignee = &mergeRequest.Assignee.WebURL
 			}
-		}
 
-		if m.attachmentField != nil {
-			m.exporter.Attachments.Export(*m.attachmentField, mergeRequest)
-		}
+			var milestone *string
+			if mergeRequest.Milestone != nil {
+				milestone = &mergeRequest.Milestone.WebURL
+			}
 
-		mrs[i] = MergeRequest{
-			Type:       "pull_request",
-			URL:        mergeRequest.WebURL,
-			User:       mergeRequest.Author.WebURL,
-			Repository: project.WebURL,
-			Title:      mergeRequest.Title,
-			Body:       mergeRequest.Description,
-			Base: Base{
-				Ref: mergeRequest.TargetBranch,
-				//				SHA:  mergeRequest.SHA,
-				//				User: project.WebURL,
-				Repo: project.WebURL,
-			},
-			Head: Base{
-				Ref: mergeRequest.SourceBranch,
-				//				SHA:  mergeRequest.SHA,
-				//				User: mergeRequest.Author.WebURL,
-				Repo: project.WebURL,
-			},
-			Assignee:  assignee,
-			Milestone: milestone,
-			Labels:    labels,
-			MergedAt:  mergedAt,
-			ClosedAt:  closedAt,
-			CreatedAt: mergeRequest.CreatedAt,
+			var mergedAt *time.Time
+			if mergeRequest.State == "merged" {
+				mergedAt = mergeRequest.UpdatedAt
+			}
+
+			var closedAt *time.Time
+			if mergeRequest.State == "closed" || mergeRequest.State == "merged" {
+				closedAt = mergeRequest.UpdatedAt
+			}
+
+			var labels []string
+			if len(mergeRequest.Labels) > 0 {
+				labels = make([]string, len(mergeRequest.Labels))
+				for i, label := range mergeRequest.Labels {
+					labels[i] = fmt.Sprintf("%s/labels#/%s", project.WebURL, label)
+				}
+			}
+
+			if m.attachmentField != nil {
+				m.exporter.Attachments.Export(*m.attachmentField, mergeRequest)
+			}
+
+			mrs[i] = MergeRequest{
+				Type:       "pull_request",
+				URL:        mergeRequest.WebURL,
+				User:       mergeRequest.Author.WebURL,
+				Repository: project.WebURL,
+				Title:      mergeRequest.Title,
+				Body:       mergeRequest.Description,
+				Base: Base{
+					Ref: mergeRequest.TargetBranch,
+					//				SHA:  mergeRequest.SHA,
+					//				User: project.WebURL,
+					Repo: project.WebURL,
+				},
+				Head: Base{
+					Ref: mergeRequest.SourceBranch,
+					//				SHA:  mergeRequest.SHA,
+					//				User: mergeRequest.Author.WebURL,
+					Repo: project.WebURL,
+				},
+				Assignee:  assignee,
+				Milestone: milestone,
+				Labels:    labels,
+				MergedAt:  mergedAt,
+				ClosedAt:  closedAt,
+				CreatedAt: mergeRequest.CreatedAt,
+			}
 		}
 	}
 
@@ -131,5 +141,9 @@ func (m *MergeRequestService) Export() {
 }
 
 func (m *MergeRequestService) WriteFile() error {
-	return m.exporter.WriteJsonFile(m.filename, m.exporter.State.MergeRequests)
+	mergeRequests := m.exporter.State.MergeRequests
+	sort.Slice(mergeRequests, func(i, j int) bool {
+		return mergeRequests[i].Title > mergeRequests[j].Title
+	})
+	return m.exporter.WriteJsonFile(m.filename, mergeRequests)
 }

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"sort"
+
 	"github.com/xanzy/go-gitlab"
 )
 
@@ -18,18 +20,43 @@ func NewGroupService(e *Exporter) *GroupService {
 }
 
 type Group struct {
-	Type        string   `json:"type"`
-	URL         string   `json:"url"`
-	Login       string   `json:"login"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Website     *string  `json:"website"`
-	Location    *string  `json:"location"`
-	Email       *string  `json:"email"`
-	Members     []string `json:"members"`
+	Type        string        `json:"type"`
+	URL         string        `json:"url"`
+	Login       string        `json:"login"`
+	Name        string        `json:"name"`
+	Description string        `json:"description"`
+	Website     *string       `json:"website"`
+	Location    *string       `json:"location"`
+	Email       *string       `json:"email"`
+	Members     []GroupMember `json:"members"`
+}
+
+type GroupMember struct {
+	User  string `json:"user"`
+	Role  string `json:"role"`
+	State string `json:"state"`
 }
 
 func (g *GroupService) Get(gid string) Group {
+	members, _, err := g.GetGroupMembers(gid)
+	if err != nil {
+		panic(err)
+	}
+	m := make([]GroupMember, len(members))
+	for i, member := range members {
+		var accessLevel string
+		if member.AccessLevel == 50 {
+			accessLevel = "admin"
+		} else {
+			accessLevel = "direct_member"
+		}
+		m[i] = GroupMember{
+			User:  member.WebURL,
+			Role:  accessLevel,
+			State: member.State,
+		}
+	}
+
 	group, _, err := g.exporter.Client.Groups.GetGroup(gid, &gitlab.GetGroupOptions{})
 	if err != nil {
 		panic(err)
@@ -42,7 +69,12 @@ func (g *GroupService) Get(gid string) Group {
 		Login:       group.Path,
 		Name:        group.Name,
 		Description: group.Description,
+		Members:     m,
 	}
+}
+
+func (g *GroupService) GetGroupMembers(namespace string) ([]*gitlab.GroupMember, *gitlab.Response, error) {
+	return g.exporter.Client.Groups.ListGroupMembers(namespace, &gitlab.ListGroupMembersOptions{})
 }
 
 func (g *GroupService) GetGroupProject(namespace, projectName string) ([]*gitlab.Project, *gitlab.Response, error) {
@@ -82,5 +114,9 @@ func (g *GroupService) Export(gid string) {
 }
 
 func (g *GroupService) WriteFile() error {
-	return g.exporter.WriteJsonFile(g.filename, g.exporter.State.Groups)
+	groups := g.exporter.State.Groups
+	sort.Slice(groups, func(i, j int) bool {
+		return groups[i].Name > groups[j].Name
+	})
+	return g.exporter.WriteJsonFile(g.filename, groups)
 }

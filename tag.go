@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sort"
 	"time"
 
 	"github.com/xanzy/go-gitlab"
@@ -89,5 +90,9 @@ func (t *TagService) Export() {
 }
 
 func (t *TagService) WriteFile() error {
-	return t.exporter.WriteJsonFile(t.filename, t.exporter.State.Tags)
+	tags := t.exporter.State.Tags
+	sort.Slice(tags, func(i, j int) bool {
+		return tags[i].Name > tags[j].Name
+	})
+	return t.exporter.WriteJsonFile(t.filename, tags)
 }

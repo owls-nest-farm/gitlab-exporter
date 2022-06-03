@@ -89,7 +89,6 @@ func (i *IssueService) GetAll() ([]Issue, error) {
 			CreatedAt:  issue.CreatedAt,
 		}
 	}
-
 	return iss, nil
 }
 
@@ -97,6 +96,12 @@ func (i *IssueService) Export() {
 	issues, err := i.GetAll()
 	if err != nil {
 		log.Fatalf("Failed to get issues for projectID %d: %v", i.exporter.CurrentProject.ID, err)
+	}
+	m := NewMergeRequestService(i.exporter)
+	mergeRequests, err, _type := m.GetAll()
+	fmt.Println("mergeRequests", mergeRequests, _type)
+	if err != nil {
+		log.Fatalf("Failed to get merge requests for projectID %d: %v", m.exporter.CurrentProject.ID, err)
 	}
 	if len(issues) > 0 {
 		i.exporter.State.Issues = append(i.exporter.State.Issues, issues...)
@@ -106,7 +111,7 @@ func (i *IssueService) Export() {
 func (i *IssueService) WriteFile() error {
 	issues := i.exporter.State.Issues
 	sort.Slice(issues, func(i, j int) bool {
-		return issues[i].User > issues[j].User
+		return issues[i].Title > issues[j].Title
 	})
 	return i.exporter.WriteJsonFile(i.filename, issues)
 }
